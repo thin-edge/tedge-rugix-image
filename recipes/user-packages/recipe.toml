@@ -1,1 +1,5 @@
 description = "User packages"
+
+dependencies = [
+    "core/pkg-update",
+]

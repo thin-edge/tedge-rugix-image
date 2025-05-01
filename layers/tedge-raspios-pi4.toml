@@ -1,7 +1,7 @@
-parent = "rpi-default"
+parent = "tedge-raspios"
 
 recipes = [
-    # Include firmware update for Rasbperry Pi 4.
+    # Include firmware update for Raspberry Pi 4.
     "core/rpi-include-firmware",
 ]
 

@@ -1,65 +1,97 @@
-set dotenv-load
+# System image. Default to amd64 if the arch does not match
+DEFAULT_SYSTEM := if arch() == "aarch64" {
+    "tedge-debian-12-efi-arm64"
+} else if arch() == "x86_64"  {
+    "tedge-debian-12-efi-amd64"
+} else {
+    "tedge-debian-12-efi-amd64"
+}
 
-export RUGPI_BAKERY_IMAGE := "ghcr.io/silitics/rugpi-bakery:v0.7"
+SYSTEM := env("SYSTEM", DEFAULT_SYSTEM)
 
-export PREFIX := "tedge_rugpi_"
-export IMAGE := "tryboot"
+# Default version (info only)
 export VERSION := env_var_or_default("VERSION", `date +'%Y%m%d.%H%M'`)
-export IMAGE_NAME := PREFIX + IMAGE + "_" + VERSION
-export OUTPUT_IMAGE := "build" / IMAGE_NAME + ".img"
+
+# Release version id (combined name and version)
+export RELEASE_ID := env_var_or_default("RELEASE_ID", SYSTEM + "_" + VERSION)
+
+# Use ipv6 network on the host so it does not conflict with the docker in docker inside the VM
+# See https://github.com/silitics/rugix/issues/49
+DOCKER_NETWORK := "rugix-net"
+DOCKER_FLAGS := "--network=" + DOCKER_NETWORK
 
 # Generate a version name (that can be used in follow up commands)
 generate_version:
     @echo "{{VERSION}}"
 
-# Show the install paths
-show:
-    @echo "PREFIX={{PREFIX}}"
-    @echo "IMAGE={{IMAGE}}"
-    @echo "IMAGE_NAME={{IMAGE_NAME}}"
-    @echo "VERSION={{VERSION}}"
-    @echo "OUTPUT_IMAGE={{OUTPUT_IMAGE}}"
+prepare:
+    #!/usr/bin/env bash
+    if [ ! -f tests/id_rsa ]; then
+        mkdir -p tests
+        ssh-keygen -t rsa -b 4096 -f tests/id_rsa -q -N ""
+    fi
 
-# Setup binfmt tools
-# Note: technically only arm64,armhf are required, however install 'all' avoids the error message
-# on arm64 hosts
-setup:
-    docker run --privileged --rm tonistiigi/binfmt --install all >/dev/null
+    PUB_KEY="SSH_KEYS_ci=\"$(cat tests/id_rsa.pub)\""
+    if grep -q "SSH_KEYS_ci=" .env; then
+        echo ".env already contains testing public key"
+    else
+        echo "$PUB_KEY" >> .env
+    fi
 
-# Clean rugpi repository cache (to force running recipes to build an image)
-clean-cache:
-    @rm -Rf .rugpi/repositories
+    docker network inspect {{DOCKER_NETWORK}} >/dev/null 2>&1 || docker network create --ipv6 -o com.docker.network.enable_ipv4=false {{DOCKER_NETWORK}}
 
-# Clean rugpi cache and build folders
-clean-all:
-    @rm -Rf .rugpi
-    @rm -Rf build/
+# list available systems that can be built
+list-systems:
+    ./run-bakery list systems
 
-# Create the image that can be flashed to an SD card or applied using the rugpi interface
-build: setup
-    mkdir -p "{{parent_directory(OUTPUT_IMAGE)}}"
-    echo "{{IMAGE_NAME}}" > {{justfile_directory()}}/.image
-    ./run-bakery bake image {{IMAGE}} {{OUTPUT_IMAGE}}
-    just VERSION={{VERSION}} IMAGE={{IMAGE}} compress
+    @echo
+    @echo just SYSTEM=example build-image
+    @echo
 
-# Compress
-compress:
-    @echo "Compressing image"
-    scripts/compress.sh "{{OUTPUT_IMAGE}}"
-    @echo ""
-    @echo ""
-    @echo "Image created successfully. Check below for options on how to use the image"
-    @echo ""
-    @echo "Option 1: Use the Raspberry Pi Imager to flash the image to an SD card"
-    @echo ""
-    @echo "    {{justfile_directory()}}/{{OUTPUT_IMAGE}}.xz"
-    @echo ""
-    @echo "Option 2: If the device is already running a rugpi image, open the http://tedge-rugpi:8088 website and install the following image:"
-    @echo ""
-    @echo "    {{justfile_directory()}}/{{OUTPUT_IMAGE}}.xz"
-    @echo ""
+# Install cross-platform tools
+build-setup:
+    docker run --privileged --rm tonistiigi/binfmt --install all
 
+# Build an image
+# Note: use default output and rename later. see https://github.com/silitics/rugix/issues/53
+build-image: build-setup
+    ./run-bakery bake image \
+        --release-id "{{RELEASE_ID}}" \
+        --release-version "{{VERSION}}" \
+        {{SYSTEM}}
 
+# Build bundle (uncompressed)
+build-bundle-uncompressed OUTPUT="system.rugixb": build-setup
+    ./run-bakery bake bundle \
+        --release-id "{{RELEASE_ID}}" \
+        --release-version "{{VERSION}}" \
+        --without-compression \
+        {{SYSTEM}} \
+        build/{{SYSTEM}}/{{OUTPUT}}
+
+# Build build (compressed)
+build-bundle OUTPUT="system.rugixb": build-setup
+    ./run-bakery bake bundle \
+        --release-id "{{RELEASE_ID}}" \
+        --release-version "{{VERSION}}" \
+        {{SYSTEM}} \
+        build/{{SYSTEM}}/{{OUTPUT}}
+
+# Start vm
+start-vm: prepare
+    DOCKER_FLAGS="{{DOCKER_FLAGS}}" ./run-bakery run \
+        --release-id "{{RELEASE_ID}}" \
+        --release-version "{{VERSION}}" \
+        {{SYSTEM}} ||:
+
+# Connect to vm
+connect-vm:
+    [ -f ./tests/id_rsa ] && ssh-add ./tests/id_rsa
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 2222 root@127.0.0.1
+
+#
+# Publishing
+#
 # Publish latest image to Cumulocity
 publish:
     cd {{justfile_directory()}} && ./scripts/upload-c8y.sh
@@ -78,87 +110,4 @@ release:
     git push origin "{{VERSION}}"
     @echo
     @echo "Created release (tag): {{VERSION}}"
-    @echo
-
-#
-# Help users to select the correct image for them
-#
-build-pi1:
-    just IMAGE=rpi-u-boot-armhf build
-    @echo
-    @echo "This image can be applied to"
-    @echo "  * pi1"
-    @echo "  * pi2 (early models)"
-    @echo "  * pizero"
-    @echo
-
-build-pizero:
-    just IMAGE=rpi-u-boot-armhf build
-    @echo
-    @echo "This image can be applied to"
-    @echo "  * pi1"
-    @echo "  * pi2 (early models)"
-    @echo "  * pizero"
-    @echo
-
-build-pi2:
-    just IMAGE=rpi-u-boot build
-    @echo
-    @echo "This image can be applied to"
-    @echo "  * pi2"
-    @echo "  * pi3"
-    @echo "  * pizero2w"
-    @echo
-
-build-pi3:
-    just IMAGE=rpi-u-boot build
-    @echo
-    @echo "This image can be applied to"
-    @echo "  * pi2"
-    @echo "  * pi3"
-    @echo "  * pizero2w"
-    @echo
-
-build-pizero2w:
-    just IMAGE=rpi-u-boot build
-    @echo
-    @echo "This image can be applied to"
-    @echo "  * pi2"
-    @echo "  * pi3"
-    @echo "  * pizero2w"
-    @echo
-
-build-pi4:
-    just IMAGE=rpi-tryboot build
-    @echo
-    @echo "This image can be applied to"
-    @echo "  * pi4"
-    @echo "  * pi5"
-    @echo
-
-build-pi4-include-firmware:
-    just IMAGE=rpi-tryboot-pi4 build
-    @echo
-    @echo "This image can be applied to"
-    @echo "  * pi4"
-    @echo
-
-build-pi5:
-    just IMAGE=rpi-tryboot build
-    @echo
-    @echo "This image can be applied to"
-    @echo "  * pi4"
-    @echo "  * pi5"
-    @echo
-
-build-debian-amd64-vm:
-    just IMAGE=debian-amd64-vm build
-    @echo
-    @echo "This image can be applied to any EFI-compatible device"
-    @echo
-
-build-debian-arm64-vm:
-    just IMAGE=debian-arm64-vm build
-    @echo
-    @echo "This image can be applied to any EFI-compatible device"
     @echo

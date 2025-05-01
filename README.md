@@ -1,8 +1,10 @@
-# thin-edge.io image using Rugpi
+# thin-edge.io image using Rugix
 
-The repository can be used to build custom Raspberry Pi images with thin-edge.io and [Rugpi](https://oss.silitics.com/rugpi/) for robust OTA Operating System updates.
+The repository can be used to build custom device images with thin-edge.io and [Rugix](https://oss.silitics.com/rugix/) for robust Over-The-Air (OTA) Operating System updates.
 
 ## Compatible devices
+
+Rugix can support building images for other devices than just Raspberry Pi's, however the thin-edge.io integration is currently only tested for Raspberry Pi devices. Please reach out for support if you are looking into integrating with other devices, or contact [Silitics](https://oss.silitics.com/rugix/commercial-support), the authors of Rugix.
 
 **Using u-boot**
 
@@ -18,19 +20,19 @@ The repository can be used to build custom Raspberry Pi images with thin-edge.io
 * Raspberry Pi 5
 
 
-## Images
+## System Images
 
-The following images are included in this repository.
+The following system images are included in this repository.
 
 |Image|Description|
 |-------|-----------|
-|rpi-tryboot|Image for Raspberry Pi 4 and 5 devices which use the tryboot bootloader|
-|rpi-tryboot-containers|Image for Raspberry Pi 4 and 5 devices which use the tryboot bootloader and with docker pre-installed|
-|rpi-tryboot-rpi4|Raspberry Pi 4 image which includes the firmware to enable tryboot bootloader|
-|rpi-u-boot|Image for Raspberry Pi 2, 3, zero 2W|
-|rpi-u-boot-containers|Image for Raspberry Pi 2, 3, zero 2W with docker pre-installed|
-|rpi-u-boot-armhf|Image for Raspberry Pi 1 and zero|
-|rpi-u-boot-armhf-containers|Image for Raspberry Pi 1 and zero with docker pre-installed|
+|tedge-raspios-arm64-tryboot|Image for Raspberry Pi 4 and 5 devices which use the tryboot bootloader|
+|tedge-raspios-arm64-tryboot-pi4|Raspberry Pi 4 image which includes the firmware to enable tryboot bootloader|
+|tedge-raspios-arm64|Image for Raspberry Pi 3 and zero 2W|
+|tedge-raspios-armhf|Image for Raspberry Pi 1, 2 and zero|
+|tedge-raspios-armhf|Image for Raspberry Pi 1, 2 and zero|
+|tedge-debian-12-efi-arm64|Image for an EFI enabled device with arm64|
+|tedge-debian-12-efi-amd64|Image for an EFI enabled device with amd64|
 
 ## Building
 
@@ -41,7 +43,7 @@ To run the build tasks, install [just](https://just.systems/man/en/chapter_5.htm
 1. Clone the repository
 
     ```sh
-    git clone https://github.com/thin-edge/tedge-rugpi-image.git
+    git clone https://github.com/thin-edge/tedge-rugix-image.git
     ```
 
 2. Create a custom `.env` file which will be used to store secrets
@@ -60,6 +62,9 @@ To run the build tasks, install [just](https://just.systems/man/en/chapter_5.htm
     SECRETS_WIFI_SSID=example
     SECRETS_WIFI_PASSWORD=yoursecurepassword
     SSH_KEYS_bootstrap="ssh-rsa xxxxxxx"
+
+    # Include ssh keys from github user profiles
+    SSH_GITHUB_USERS=myuser
     ```
 
     **Note**
@@ -68,30 +73,26 @@ To run the build tasks, install [just](https://just.systems/man/en/chapter_5.htm
 
     If an image has Wifi credentials baked in, then you should not make this image public, as it would expose your credentials! 
 
-4. Create the image (including downloading the supported base Raspberry Pi image) using:
+4. Create the image
 
     ```sh
-    just build-pi4
+    just SYSTEM=tedge-raspios-arm64-tryboot build-image
     ```
 
-    Alternatively, you can use any of the image names defined in the `rugpi-bakery.toml` file, where the image name is part of the `images.*` key. For example, for `images.rpi-tryboot-containers`, the `IMAGE` name would be `rpi-tryboot`. You can then build the image using the following command:
+5. Using the path to the image shown in the console to flash the image to the device.
 
-    ```sh
-    just IMAGE=rpi-tryboot-containers build
+6. Build the update bundle for Over-the-Air Updates
+
+    ```
+    just SYSTEM=tedge-raspios-arm64-tryboot build-bundle
     ```
 
-5. Using the path to the image shown in the console to flash the image to the Raspberry Pi.
+    **Note:** A Rugix update bundle will have the `.rugixb` suffix in its filename
 
-6. Subsequent A/B updates can be done using Cumulocity IoT or the local Rugpi interface on (localhost:8088)
-
-    **Notes**
-
-    You can apply image updates via the device's localhost:8088 interface, however you will have to expand the `.xz` image file to a `.img` file.
-
-For further information on Rugpi, checkout the [quick start guide](https://oss.silitics.com/rugpi/docs/getting-started).
+For further information on Rugix, checkout the [quick start guide](https://oss.silitics.com/rugix/docs/getting-started).
 
 
-### Building images including thin-edge.io main
+### Building images/bundles including thin-edge.io main
 
 To build an image with the latest pre-release version from the [main channel](https://thin-edge.github.io/thin-edge.io/contribute/package-hosting/#pre-releases), set the following environment variable in the `.env` file in your project:
 
@@ -107,25 +108,25 @@ The different image options can be confusing, so to help users a few device spec
 #### Raspberry Pi 1
 
 ```sh
-just build-pi1
+just SYSTEM=tedge-raspios-armhf build-image
 ```
 
 #### Raspberry Pi 2
 
 ```sh
-just build-pi2
+just SYSTEM=tedge-raspios-armhf build-image
 ```
 
 #### Raspberry Pi 3
 
 ```sh
-just build-pi3
+just SYSTEM=tedge-raspios-arm64 build-image
 ```
 
 #### Raspberry Pi 4 / 400
 
 ```sh
-just build-pi4
+just SYSTEM=tedge-raspios-arm64 build-image
 ```
 
 **Note**
@@ -135,25 +136,25 @@ All Raspberry Pi 4 and 400 don't support tryboot by default, and need their firm
 You can build an image which also includes the firmware used to enable tryboot. Afterwards you can switch back to using an image without the firmware included in it.
 
 ```sh
-just build-pi4-include-firmware
+just SYSTEM=tedge-raspios-arm64-tryboot-pi4 build-image
 ```
 
 #### Raspberry Pi 5
 
 ```sh
-just build-pi5
+just SYSTEM=tedge-raspios-arm64 build-image
 ```
 
 #### Raspberry Pi Zero
 
 ```sh
-just build-pizero
+just SYSTEM=tedge-raspios-armhf build-image
 ```
 
 #### Raspberry Pi Zero 2W
 
 ```sh
-just build-pizero2w
+just SYSTEM=tedge-raspios-arm64 build-image
 ```
 
 ## Project Tasks
@@ -177,7 +178,6 @@ just build-pizero2w
 5. Publish the release
 
 **Optional: Public images to Cumulocity IoT**
-
 
 You will need [go-c8y-cli](https://goc8ycli.netlify.app/) and [gh](https://cli.github.com/) tools for this!
 
