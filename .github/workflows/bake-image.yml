@@ -60,9 +60,6 @@ jobs:
 
       - uses: taiki-e/install-action@just
 
-      - name: Install dependencies
-        run: just build-setup
-
       - name: Configure .env
         env:
           IMAGE_CONFIG: ${{secrets.IMAGE_CONFIG || ''}}
