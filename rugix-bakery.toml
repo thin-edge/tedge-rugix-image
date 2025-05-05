@@ -1,0 +1,52 @@
+#:schema https://raw.githubusercontent.com/silitics/rugix/refs/tags/v0.8.0/schemas/rugix-bakery-project.schema.json
+[repositories]
+rugix-extra = { git = "https://github.com/silitics/rugix-extra", branch = "main" }
+tedge-rugix-core = { git = "https://github.com/thin-edge/tedge-rugix-core.git", branch = "v0.8-rugix" }
+
+
+[systems.tedge-debian-12-efi-arm64]
+layer = "tedge-debian-12-efi"
+architecture = "arm64"
+target = "generic-grub-efi"
+
+[systems.tedge-debian-12-efi-amd64]
+layer = "tedge-debian-12-efi"
+architecture = "amd64"
+target = "generic-grub-efi"
+
+# Compatible with:
+# - Raspberry Pi 5
+# - Raspberry Pi 4 (with recent firmware)
+# - Raspberry Pi CM4 (with recent firmware)
+[systems.tedge-raspios-arm64-tryboot]
+layer = "tedge-raspios"
+architecture = "arm64"
+target = "rpi-tryboot"
+
+# Compatible with:
+# - Raspberry Pi 5
+# - Raspberry Pi 4 (with recent firmware)
+# - Raspberry Pi CM4 (with recent firmware)
+[systems.tedge-raspios-arm64-tryboot-pi4]
+layer = "tedge-raspios-pi4"
+architecture = "arm64"
+target = "rpi-tryboot"
+
+# Compatible with:
+# - Raspberry Pi 4 (with recent firmware)
+# - Raspberry Pi CM4 (with recent firmware)
+# - Raspberry Pi 3
+# - Raspberry Pi Zero 2w
+# - Raspberry Pi 2
+[systems.tedge-raspios-arm64]
+layer = "tedge-raspios"
+architecture = "arm64"
+target = "rpi-uboot"
+
+# Compatible with:
+# - Raspberry Pi 1
+# - Raspberry Pi Zero
+[systems.tedge-raspios-armhf]
+layer = "tedge-raspios-legacy"
+architecture = "armhf"
+target = "rpi-uboot"

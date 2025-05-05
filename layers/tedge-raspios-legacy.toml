@@ -1,0 +1,39 @@
+#:schema https://raw.githubusercontent.com/silitics/rugix/refs/tags/v0.8.0/schemas/rugix-bakery-layer.schema.json
+parent = "tedge-rugix-core/raspios"
+
+recipes = [
+    "core/rpi-raspios-setup",
+    "tedge-rugix-core/defaults",
+    "tedge-rugix-core/raspi-tpm",
+    "tedge-rugix-core/setup-pkcs11",
+
+    # use avahi instead of systemd-resolved due to
+    # an issue with high cpu usage
+    "tedge-rugix-core/avahi-daemon",
+
+    # containers
+    "tedge-rugix-core/docker",
+
+    # Include u-boot setup on all image
+    # to avoid having to create a layer per-bootloader
+    # and it does not cause any negative effects
+    # including it for tryboot
+    "core/rpi-uboot-setup",
+
+    # SBOM
+    "rugix-extra/simple-sbom",
+
+    "tedge-config",
+    "user-packages",
+]
+
+# exclude specific recipes which are currently not supported on older versions
+# due to various issues
+exclude = [
+    # high cpu usage on rpi1
+    "tedge-rugix-core/systemd-resolved",
+]
+
+[parameters."tedge-config"]
+# Allow containers to reach the MQTT broker on the host
+mqtt_bind_address = "0.0.0.0"

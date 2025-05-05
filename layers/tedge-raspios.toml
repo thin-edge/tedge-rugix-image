@@ -1,0 +1,28 @@
+#:schema https://raw.githubusercontent.com/silitics/rugix/refs/tags/v0.8.0/schemas/rugix-bakery-layer.schema.json
+parent = "tedge-rugix-core/raspios"
+
+recipes = [
+    "core/rpi-raspios-setup",
+    "tedge-rugix-core/defaults",
+    "tedge-rugix-core/raspi-tpm",
+    "tedge-rugix-core/setup-pkcs11",
+
+    # containers
+    "tedge-rugix-core/docker",
+
+    # Include u-boot setup on all image
+    # to avoid having to create a layer per-bootloader
+    # and it does not cause any negative effects
+    # including it for tryboot
+    "core/rpi-uboot-setup",
+
+    # SBOM
+    "rugix-extra/simple-sbom",
+
+    "tedge-config",
+    "user-packages",
+]
+
+[parameters."tedge-config"]
+# Allow containers to reach the MQTT broker on the host
+mqtt_bind_address = "0.0.0.0"

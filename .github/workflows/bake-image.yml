@@ -5,6 +5,7 @@ on:
   pull_request:
   workflow_dispatch:
   push:
+    branches: [feat-rugix]
     tags:
       - "*"
 
@@ -36,58 +37,130 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bake-image:
-    name: Bake Image ${{ matrix.job.image }}
-    runs-on: ubuntu-latest
+    name: Bake ${{ matrix.job.system }}
+    runs-on: ${{ matrix.job.runner }}
     needs: info
+    env:
+      IMAGE_NAME: ${{ matrix.job.system }}_${{ needs.info.outputs.version }}
+      VERSION: ${{needs.info.outputs.version}}
     strategy:
       fail-fast: false
       matrix:
         job:
-          - { image: rpi-tryboot }
-          - { image: rpi-tryboot-containers }
-          - { image: rpi-tryboot-pi4 }
-          - { image: rpi-u-boot }
-          - { image: rpi-u-boot-containers }
-          - { image: rpi-u-boot-armhf }
-          - { image: rpi-u-boot-armhf-containers }
-          - { image: debian-arm64 }
-          - { image: debian-amd64 }
+          - { system: tedge-debian-12-efi-arm64, runner: ubuntu-24.04-arm }
+          - { system: tedge-debian-12-efi-amd64, runner: ubuntu-latest }
+          - { system: tedge-raspios-arm64-tryboot-pi4, runner: ubuntu-24.04-arm }
+          - { system: tedge-raspios-arm64-tryboot, runner: ubuntu-24.04-arm }
+          - { system: tedge-raspios-arm64, runner: ubuntu-24.04-arm }
+          - { system: tedge-raspios-armhf, runner: ubuntu-latest }
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
       - uses: taiki-e/install-action@just
-      - name: Install dependencies
-        run: just setup
-      - id: info
-        env:
-          VERSION: ${{needs.info.outputs.version}}
-        run: |
-          source <(just show)
-          echo "PREFIX=$PREFIX" >> "$GITHUB_OUTPUT"
+
       - name: Configure .env
         env:
           IMAGE_CONFIG: ${{secrets.IMAGE_CONFIG || ''}}
         run: |
-          echo "IMAGE_NAME=${{ steps.info.outputs.PREFIX }}${{ matrix.job.image }}_${{ needs.info.outputs.version }}" > ".env"
+          echo "Adding github repo owner (${{ github.repository_owner }}) to 'SSH_GITHUB_OWNER' variable to load any publish ssh keys if they exist"
+          echo "SSH_GITHUB_OWNER=${{ github.repository_owner }}" >> .env
+
           if [ -n "$IMAGE_CONFIG" ]; then
             echo "Adding custom IMAGE_CONFIG settings to .env"
-            echo "$IMAGE_CONFIG" >> ".env"
+            echo "$IMAGE_CONFIG" >> .env
           fi
 
       - name: Build image
-        env:
-          VERSION: ${{needs.info.outputs.version}}
         run: |
-          just IMAGE=${{ matrix.job.image }} build
+          just SYSTEM=${{ matrix.job.system }} build-image
 
-      - name: Upload Image
+      - name: Rename artifacts
+        run: |
+          sudo cp build/${{ matrix.job.system }}/system.img build/${{ matrix.job.system }}/${{ env.IMAGE_NAME }}.img
+          sudo cp build/${{ matrix.job.system }}/artifacts/sbom.txt build/${{ matrix.job.system }}/artifacts/${{ env.IMAGE_NAME }}.sbom.txt
+          ls -l build/${{ matrix.job.system }}/
+          ls -l build/${{ matrix.job.system }}/artifacts/
+
+      - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.info.outputs.PREFIX }}${{ matrix.job.image }}_${{ needs.info.outputs.version }}
+          name: ${{ env.IMAGE_NAME }}.sbom.txt
+          if-no-files-found: error
           path: |
-            build/
-            *.sbom.txt
+            build/${{ matrix.job.system }}/artifacts/${{ env.IMAGE_NAME }}.sbom.txt
+
+      - name: Compress Image (xz)
+        run: |
+          sudo xz -v "build/${{ matrix.job.system }}/${{ env.IMAGE_NAME }}.img"
+      
+      - name: Upload Image
+        uses: actions/upload-artifact@v4
+        id: image-upload-step
+        with:
+          name: ${{ env.IMAGE_NAME }}.img.xz
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            build/${{ matrix.job.system }}/${{ env.IMAGE_NAME }}.img.xz
+
+      - name: Build bundle
+        run: |
+          just SYSTEM=${{ matrix.job.system }} build-bundle ${{ env.IMAGE_NAME }}.rugixb
+
+      - name: Upload Update Bundle
+        uses: actions/upload-artifact@v4
+        id: bundle-upload-step
+        with:
+          name: ${{ env.IMAGE_NAME }}.rugixb
+          if-no-files-found: error
+          # rugixb is already compressed
+          compression-level: 0
+          path: |
+            build/${{ matrix.job.system }}/${{ env.IMAGE_NAME }}.rugixb
+
+      - uses: reubenmiller/setup-go-c8y-cli@main
+      - name: Publish firmware to c8y
+        if: ${{ github.repository_owner == 'thin-edge' }}
+        env:
+          C8Y_HOST: '${{ secrets.C8Y_HOST }}'
+          C8Y_USER: '${{ secrets.C8Y_USER }}'
+          C8Y_PASSWORD: '${{ secrets.C8Y_PASSWORD }}'
+        run: |
+          publish_firmware_version() {
+            FIRMWARE_NAME="$1"
+            FIRMWARE_VERSION="$2"
+            ARTIFACT_URL="$3"
+
+            FIRMWARE_ID=$(
+              c8y firmware get -n --id "$FIRMWARE_NAME" --silentStatusCodes 404 --select id -o csv ||
+                c8y firmware create -n --name "$FIRMWARE_NAME" --select id -o csv
+            )
+            ARTIFACT_ID=$(echo "$ARTIFACT_URL" | rev | cut -d/ -f1 | rev)
+            FIRMWARE_URL="https://api.github.com/repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip"
+            c8y firmware versions create \
+              -n \
+              --firmware "$FIRMWARE_ID" \
+              --version "$FIRMWARE_VERSION" \
+              --url "$FIRMWARE_URL" \
+              --template "{
+                github: {
+                  ref: '${{ github.ref }}',
+                  repository: '${{ github.repository }}',
+                  run_id: '${{ github.run_id }}',
+                  sha: '${{ github.sha }}',
+                  artifactUrl: '$ARTIFACT_URL',
+                }
+              }"
+          }
+
+          # bundle
+          publish_firmware_version "${{ matrix.job.system }}" "${{ env.VERSION }}" "${{ steps.bundle-upload-step.outputs.artifact-url }}"
+
+          # image (only used for migrating from a rugpi image to rugix)
+          publish_firmware_version "${{ matrix.job.system }}" "${{ env.VERSION }}-img" "${{ steps.image-upload-step.outputs.artifact-url }}"
+
 
   release:
     name: Release
@@ -105,7 +178,7 @@ jobs:
       - name: Show release artifacts
         run: ls -l release/*/*
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
