@@ -60,6 +60,11 @@ build-image: build-setup
         --release-version "{{VERSION}}" \
         {{SYSTEM}}
 
+    echo "Created the image successfully"
+    echo
+    echo "  build/{{SYSTEM}}/system.img"
+    echo
+
 # Build bundle (uncompressed)
 build-bundle-uncompressed OUTPUT="system.rugixb": build-setup
     ./run-bakery bake bundle \
@@ -69,6 +74,11 @@ build-bundle-uncompressed OUTPUT="system.rugixb": build-setup
         {{SYSTEM}} \
         build/{{SYSTEM}}/{{OUTPUT}}
 
+    echo "Created the (uncompressed) bundle successfully"
+    echo
+    echo "  build/{{SYSTEM}}/{{OUTPUT}}"
+    echo
+
 # Build build (compressed)
 build-bundle OUTPUT="system.rugixb": build-setup
     ./run-bakery bake bundle \
@@ -76,6 +86,11 @@ build-bundle OUTPUT="system.rugixb": build-setup
         --release-version "{{VERSION}}" \
         {{SYSTEM}} \
         build/{{SYSTEM}}/{{OUTPUT}}
+    
+    echo "Created the (compressed) bundle successfully"
+    echo
+    echo "  build/{{SYSTEM}}/{{OUTPUT}}"
+    echo
 
 # Start vm
 start-vm: prepare
